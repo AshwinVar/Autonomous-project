@@ -1,0 +1,49 @@
+import os
+
+def parse_and_save_calib(calib_file_path, output_dir, num_images):
+    """
+    Parses calib_cam_to_cam.txt to extract P_rect_02 and P_rect_03.
+    Generates calib.txt files for each image.
+    """
+    # Read calib_cam_to_cam.txt
+    with open(calib_file_path, 'r') as f:
+        lines = f.readlines()
+    
+    # Extract P_rect_02 and P_rect_03 matrices
+    calib_dict = {}
+    for line in lines:
+        if "P_rect_02" in line:
+            calib_dict["P2"] = line.split(' ')[1:]
+        elif "P_rect_03" in line:
+            calib_dict["P3"] = line.split(' ')[1:]
+    
+    # Verify extracted parameters
+    if "P2" not in calib_dict or "P3" not in calib_dict:
+        raise ValueError("P_rect_02 or P_rect_03 not found in calibration file.")
+    
+    # Create output directory for calib.txt
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Generate calib.txt files for each image index
+    for idx in range(num_images):
+        calib_file = os.path.join(output_dir, f"{idx:06d}.txt")
+        with open(calib_file, 'w') as f:
+            f.write(f"P2: {' '.join(calib_dict['P2'])}\n")
+            f.write(f"P3: {' '.join(calib_dict['P3'])}\n")
+    
+    print(f"Calibration files saved in: {output_dir}")
+
+# Paths
+calib_file_path = r"D:/Autonomous_project/KITTI_dataset/raw_dataset/2011_09_26/calib/calib_cam_to_cam.txt"  # Update to your path
+output_dir = r"D:/Autonomous_project/KITTI_dataset/object_detection/training/calib"  # Path to save calib.txt files
+num_images = 1000  # Set the number of images in your dataset
+
+# Run the script
+parse_and_save_calib(calib_file_path, output_dir, num_images)
+
+# # Paths
+# calib_input_path = r"D:/Autonomous_project/KITTI_dataset/raw_dataset/2011_09_26/calib/calib_cam_to_cam.txt"
+# output_dir = r"D:/Autonomous_project/KITTI_dataset/object_detection/training/calib"
+
+# # Generate calib.txt files
+# parse_calib_file(calib_input_path, output_dir)

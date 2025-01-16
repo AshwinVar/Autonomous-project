@@ -1,0 +1,5 @@
+Model,Accuracy,Precision,Recall,F1-Score
+Simple CNN,0.52,0.45,0.51,0.45
+VGG16,0.92,0.55,0.49,0.48
+ResNet,0.61,0.39,0.62,0.48
+DenseNet121,0.66,0.12,0.28,0.15

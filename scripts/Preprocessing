@@ -1,0 +1,169 @@
+import os
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Smooth L1 Loss for bounding box regression
+def smooth_l1_loss(y_true, y_pred):
+    diff = tf.abs(y_true - y_pred)
+    less_than_one = tf.cast(diff < 1.0, tf.float32)
+    loss = less_than_one * 0.5 * tf.square(diff) + (1.0 - less_than_one) * (diff - 0.5)
+    return tf.reduce_mean(loss)
+
+# Focal loss for confidence scores
+def focal_loss(y_true, y_pred, gamma=2.0, alpha=0.25):
+    pt = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
+    loss = -alpha * tf.pow(1 - pt, gamma) * tf.math.log(pt + 1e-7)
+    return tf.reduce_mean(loss)
+
+# Create a model with regression and confidence outputs
+def create_model():
+    inputs = tf.keras.layers.Input(shape=(224, 224, 3))
+    x = tf.keras.layers.Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
+    x = tf.keras.layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = tf.keras.layers.MaxPooling2D(2)(x)
+    x = tf.keras.layers.Flatten()(x)
+
+    # Regression branch for bounding boxes
+    bbox_outputs = tf.keras.layers.Dense(40, activation='sigmoid', name="bbox")(x)  # 10 boxes * 4 coords
+    bbox_outputs = tf.keras.layers.Reshape((10, 4), name="bbox_reshaped")(bbox_outputs)
+
+    # Classification branch for confidence scores
+    confidence_outputs = tf.keras.layers.Dense(10, activation='sigmoid', name="confidence")(x)  # Confidence for 10 boxes
+
+    # Create model with named outputs
+    model = tf.keras.Model(inputs=inputs, outputs={"bbox_reshaped": bbox_outputs, "confidence": confidence_outputs})
+
+    # Compile with metrics and losses matching output names
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),
+        loss={"bbox_reshaped": smooth_l1_loss, "confidence": focal_loss},
+        metrics={"bbox_reshaped": "mae", "confidence": "accuracy"}
+    )
+    return model
+
+# Load KITTI images and bounding boxes
+def load_kitti_data(image_dir, label_dir, image_size=(224, 224), batch_size=8, max_boxes=10):
+    image_files = sorted([os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.png')])
+    label_files = sorted([os.path.join(label_dir, f.replace('.png', '.txt')) for f in os.listdir(image_dir) if f.endswith('.png')])
+
+    def parse_image_and_label(image_path, label_path):
+        image = tf.io.read_file(image_path)
+        image = tf.image.decode_png(image, channels=3)
+        original_height = tf.cast(tf.shape(image)[0], tf.float32)
+        original_width = tf.cast(tf.shape(image)[1], tf.float32)
+        image = tf.image.resize(image, image_size)
+        image = tf.cast(image, tf.float32) / 255.0
+
+        label_str = tf.io.read_file(label_path)
+        label_lines = tf.strings.split(label_str, '\n')
+        bboxes = []
+        
+        for line in label_lines:
+            if tf.strings.length(line) > 0:
+                parts = tf.strings.split(line)
+                if len(parts) >= 8:
+                    left = tf.strings.to_number(parts[4])
+                    top = tf.strings.to_number(parts[5])
+                    right = tf.strings.to_number(parts[6])
+                    bottom = tf.strings.to_number(parts[7])
+                    x1 = left / original_width
+                    y1 = top / original_height
+                    x2 = right / original_width
+                    y2 = bottom / original_height
+                    if x2 > x1 and y2 > y1:
+                        bboxes.append([x1, y1, x2, y2])
+
+        if len(bboxes) > 0:
+            bboxes = tf.convert_to_tensor(bboxes, dtype=tf.float32)
+            padded_bboxes = tf.pad(
+                bboxes[:max_boxes],
+                [[0, max_boxes - tf.minimum(tf.shape(bboxes)[0], max_boxes)], [0, 0]],
+                constant_values=0.0
+            )
+        else:
+            padded_bboxes = tf.zeros((max_boxes, 4), dtype=tf.float32)
+
+        confidences = tf.ones((max_boxes,), dtype=tf.float32)  # Dummy confidences for now
+        return image, padded_bboxes, confidences
+
+    def tf_parse(image_path, label_path):
+        image, bboxes, confidences = tf.py_function(
+            parse_image_and_label, [image_path, label_path], [tf.float32, tf.float32, tf.float32]
+        )
+        image.set_shape((*image_size, 3))
+        bboxes.set_shape((max_boxes, 4))
+        confidences.set_shape((max_boxes,))
+        return image, bboxes, confidences
+
+    dataset = tf.data.Dataset.from_tensor_slices((image_files, label_files))
+    dataset = dataset.map(tf_parse, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    return dataset
+
+def augment(image, bboxes):
+    image = tf.image.random_flip_left_right(image)
+    image = tf.image.random_brightness(image, max_delta=0.2)
+    return image, bboxes
+
+# Non-Maximum Suppression (NMS)
+def apply_nms(pred_boxes, confidences, iou_threshold=0.5):
+    selected_indices = tf.image.non_max_suppression(
+        pred_boxes, confidences, max_output_size=10, iou_threshold=iou_threshold
+    )
+    filtered_boxes = tf.gather(pred_boxes, selected_indices)
+    filtered_confidences = tf.gather(confidences, selected_indices)
+    return filtered_boxes, filtered_confidences
+
+# Visualization with predictions
+def visualize_with_predictions(images, true_labels, pred_labels, confidences, image_size=(224, 224)):
+    for i in range(len(images)):
+        # Ensure all data are NumPy arrays
+        image = images[i].numpy()
+        gt_boxes = true_labels[i].numpy()
+        pred_boxes = pred_labels[i]  # No need to convert, already NumPy
+        confs = confidences[i]  # No need to convert, already NumPy
+
+        # Apply NMS to predictions
+        pred_boxes, confs = apply_nms(pred_boxes, confs)
+
+        plt.figure(figsize=(12, 8))
+        plt.imshow((image * 255).astype(np.uint8))
+
+        # Ground truth (Green)
+        for box in gt_boxes:
+            if np.all(box == 0): continue
+            x1, y1, x2, y2 = box * [image_size[1], image_size[0], image_size[1], image_size[0]]
+            plt.gca().add_patch(plt.Rectangle((x1, y1), x2-x1, y2-y1, color='green', fill=False, linewidth=2))
+
+        # Predictions (Red)
+        for box, conf in zip(pred_boxes, confs):
+            if conf < 0.7: continue
+            x1, y1, x2, y2 = box * [image_size[1], image_size[0], image_size[1], image_size[0]]
+            plt.gca().add_patch(plt.Rectangle((x1, y1), x2-x1, y2-y1, color='red', fill=False, linewidth=2))
+            plt.text(x1, y1, f"{conf:.2f}", color='red', fontsize=10)
+
+        plt.title("Green = Ground Truth, Red = Predicted (with confidence)")
+        plt.axis('off')
+        plt.show()
+
+if __name__ == "__main__":
+    image_dir = r"D:\Autonomous_project\KITTI_dataset\object_detection\training\image_2"
+    label_dir = r"D:\Autonomous_project\KITTI_dataset\object_detection\training\label_2"
+
+    print("Loading data...")
+    dataset = load_kitti_data(image_dir, label_dir, batch_size=4)
+
+    model = create_model()
+    print("Training Model...")
+    for images, bboxes, confidences in dataset.take(1):  # Use a subset for testing
+        model.fit(images, {"bbox_reshaped": bboxes, "confidence": confidences}, epochs=5)
+
+    print("Visualizing Predictions...")
+    for images, bboxes, confidences in dataset.take(1):
+        predictions = model.predict(images)
+        pred_bboxes = predictions["bbox_reshaped"]  # Extract predicted bounding boxes
+        pred_confidences = predictions["confidence"]  # Extract predicted confidence scores
+
+        visualize_with_predictions(images, bboxes, pred_bboxes, pred_confidences)

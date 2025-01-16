@@ -1,0 +1,170 @@
+import os
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.keras.callbacks import ReduceLROnPlateau
+
+# Smooth L1 Loss for bounding box regression
+def smooth_l1_loss(y_true, y_pred):
+    diff = tf.abs(y_true - y_pred)
+    less_than_one = tf.cast(diff < 1.0, tf.float32)
+    loss = less_than_one * 0.5 * tf.square(diff) + (1.0 - less_than_one) * (diff - 0.5)
+    return tf.reduce_mean(loss)
+
+# Focal loss for confidence scores
+def focal_loss(y_true, y_pred, gamma=2.0, alpha=0.25):
+    pt = tf.where(tf.equal(y_true, 1), y_pred, 1 - y_pred)
+    loss = -alpha * tf.pow(1 - pt, gamma) * tf.math.log(pt + 1e-7)
+    return tf.reduce_mean(loss)
+
+# Create a model with regression and confidence outputs
+def create_model_with_backbone():
+    base_model = tf.keras.applications.ResNet50(include_top=False, input_shape=(224, 224, 3), pooling='avg')
+    base_model.trainable = False  # Freeze the base model
+
+    inputs = tf.keras.layers.Input(shape=(224, 224, 3))
+    x = base_model(inputs, training=False)
+
+    # Regression branch for bounding boxes
+    bbox_outputs = tf.keras.layers.Dense(40, activation='sigmoid', name="bbox")(x)
+    bbox_outputs = tf.keras.layers.Reshape((10, 4), name="bbox_reshaped")(bbox_outputs)
+
+    # Classification branch for confidence scores
+    confidence_outputs = tf.keras.layers.Dense(10, activation='sigmoid', name="confidence")(x)
+
+    model = tf.keras.Model(inputs=inputs, outputs={"bbox_reshaped": bbox_outputs, "confidence": confidence_outputs})
+
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=1e-4, decay_steps=1000, decay_rate=0.96, staircase=True
+    )
+    optimizer = tf.keras.optimizers.AdamW(learning_rate=lr_schedule)
+
+    model.compile(
+        optimizer=optimizer,
+        loss={"bbox_reshaped": smooth_l1_loss, "confidence": focal_loss},
+        metrics={"bbox_reshaped": "mae", "confidence": "accuracy"}
+    )
+    return model
+
+# Load KITTI images and bounding boxes
+def parse_image_and_label(image_path, label_path, image_size=(224, 224), max_boxes=10):
+    image = tf.io.read_file(image_path)
+    image = tf.image.decode_png(image, channels=3)
+    original_height = tf.cast(tf.shape(image)[0], tf.float32)
+    original_width = tf.cast(tf.shape(image)[1], tf.float32)
+    image = tf.image.resize(image, image_size)
+    image = tf.cast(image, tf.float32) / 255.0
+
+    label_str = tf.io.read_file(label_path)
+    label_lines = tf.strings.split(label_str, '\n')
+    bboxes = []
+    
+    for line in label_lines:
+        if tf.strings.length(line) > 0:
+            parts = tf.strings.split(line)
+            if len(parts) >= 8:
+                left = tf.strings.to_number(parts[4])
+                top = tf.strings.to_number(parts[5])
+                right = tf.strings.to_number(parts[6])
+                bottom = tf.strings.to_number(parts[7])
+                x1 = left / original_width
+                y1 = top / original_height
+                x2 = right / original_width
+                y2 = bottom / original_height
+                if x2 > x1 and y2 > y1:
+                    bboxes.append([x1, y1, x2, y2])
+
+    if len(bboxes) > 0:
+        bboxes = tf.convert_to_tensor(bboxes, dtype=tf.float32)
+        padded_bboxes = tf.pad(
+            bboxes[:max_boxes],
+            [[0, max_boxes - tf.minimum(tf.shape(bboxes)[0], max_boxes)], [0, 0]],
+            constant_values=0.0
+        )
+    else:
+        padded_bboxes = tf.zeros((max_boxes, 4), dtype=tf.float32)
+
+    confidences = tf.ones((max_boxes,), dtype=tf.float32)  # Dummy confidences for now
+    return image, padded_bboxes, confidences
+
+def load_kitti_data_with_augmentation(image_dir, label_dir, image_size=(224, 224), batch_size=8, max_boxes=10):
+    image_files = sorted([os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.png')])
+    label_files = sorted([os.path.join(label_dir, f.replace('.png', '.txt')) for f in os.listdir(image_dir) if f.endswith('.png')])
+
+    def tf_parse_and_augment(image_path, label_path):
+        image, bboxes, confidences = tf.py_function(
+            parse_image_and_label, [image_path, label_path, image_size, max_boxes], [tf.float32, tf.float32, tf.float32]
+        )
+        image.set_shape((*image_size, 3))
+        bboxes.set_shape((max_boxes, 4))
+        confidences.set_shape((max_boxes,))
+        return image, {"bbox_reshaped": bboxes, "confidence": confidences}
+
+    dataset = tf.data.Dataset.from_tensor_slices((image_files, label_files))
+    dataset = dataset.map(tf_parse_and_augment, num_parallel_calls=tf.data.AUTOTUNE)
+    dataset = dataset.shuffle(buffer_size=1000).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+    return dataset
+
+def load_dataset():
+    """
+    Load and preprocess the dataset
+    """
+    def preprocess_image(image_path):
+        image = tf.io.read_file(image_path)
+        image = tf.image.decode_png(image, channels=3)
+        image = tf.image.resize(image, [224, 224])
+        image = tf.cast(image, tf.float32) / 255.0
+        return image
+    
+    def preprocess_label(label_path):
+        # Your label processing code here
+        # Should return [bboxes, confidence]
+        # bboxes shape: (10, 4)
+        # confidence shape: (10,)
+        pass
+    
+    # Create dataset
+    image_paths = ... # Your image paths
+    label_paths = ... # Your label paths
+    
+    dataset = tf.data.Dataset.from_tensor_slices((image_paths, label_paths))
+    dataset = dataset.map(
+        lambda img_path, lbl_path: (
+            preprocess_image(img_path),
+            preprocess_label(lbl_path)
+        ),
+        num_parallel_calls=tf.data.AUTOTUNE
+    )
+    
+    return dataset
+
+if __name__ == "__main__":
+    image_dir = r"D:\Autonomous_project\KITTI_dataset\object_detection\training\image_2"
+    label_dir = r"D:\Autonomous_project\KITTI_dataset\object_detection\training\label_2"
+
+    print("Loading data...")
+    dataset = load_kitti_data_with_augmentation(image_dir, label_dir, batch_size=16)
+
+    model = create_model_with_backbone()
+    print("Training Model...")
+    checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+        filepath="model_checkpoints/kitti_model_{epoch:02d}.h5.keras",
+        save_best_only=True,
+        monitor="loss",
+        verbose=1
+    )
+
+    early_stopping = tf.keras.callbacks.EarlyStopping(
+        monitor="loss", patience=5, restore_best_weights=True
+    )
+    reduce_lr = ReduceLROnPlateau(
+        monitor="loss", factor=0.5, patience=3, verbose=1, min_lr=1e-6
+    )
+
+    history = model.fit(
+        dataset,
+        epochs=4,
+        callbacks=[checkpoint_callback, early_stopping, reduce_lr]
+    )
+
+    print("Training complete.")
