@@ -1,13 +1,13 @@
-name: CI
-on: [push, pull_request]
+ - uses: actions/checkout@v4
+ - uses: actions/setup-python@v5
+   with:
+     python-version: '3.11'
 
-jobs:
-  tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - run: pip install -r requirements.txt
-      - run: pytest -q
+ # NEW: install your package itself
+ - run: pip install -e .
+
+ # existing requirements (keep if you like, or merge them)
+ - run: pip install -r requirements.txt
+
+ # run the tests
+ - run: pytest -q
