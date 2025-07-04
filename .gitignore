@@ -1,2 +1,8 @@
 __pycache__/
+*.py[cod]
 .venv/
+.vscode/
+.idea/
+raw_dataset/
+model_checkpoints/
+runs/
