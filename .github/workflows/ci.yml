@@ -1,13 +1,24 @@
- - uses: actions/checkout@v4
- - uses: actions/setup-python@v5
-   with:
-     python-version: '3.11'
+name: CI
 
- # NEW: install your package itself
- - run: pip install -e .
+on:
+  push:
+  pull_request:
 
- # existing requirements (keep if you like, or merge them)
- - run: pip install -r requirements.txt
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      # 1 – check out your repo
+      - uses: actions/checkout@v4
 
- # run the tests
- - run: pytest -q
+      # 2 – set up Python 3.11
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3 – install your package (editable mode) + deps
+      - run: pip install -e .
+      - run: pip install -r requirements.txt
+
+      # 4 – run the test suite
+      - run: pytest -q
