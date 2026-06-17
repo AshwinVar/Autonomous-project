@@ -1,6 +1,6 @@
 # Autonomous Systems Demo: Localization, Perception & Safety-Aware Planning
 
-A hiring-ready autonomous systems project showing a complete, testable pipeline for:
+Autonomous systems project showing a complete, testable pipeline for:
 
 - **Sensor fusion / localization** using a Kalman Filter over 2D vehicle state.
 - **Lightweight perception scoring** using a NumPy CNN-style feature extractor.
@@ -14,7 +14,7 @@ This repository is designed as a portfolio project for robotics, autonomous syst
 
 ## 1. Why this project matters
 
-Autonomous systems roles expect more than a notebook. This repo demonstrates the engineering layer around autonomy code:
+This repo demonstrates the engineering layer around autonomy code:
 
 - deterministic simulation
 - clean package structure
@@ -24,9 +24,7 @@ Autonomous systems roles expect more than a notebook. This repo demonstrates the
 - metrics and visualization outputs
 - documented architecture and assumptions
 
-The default demo runs without external datasets, so reviewers can validate the project quickly.
-
----
+The default demo runs without external datasets
 
 ## 2. Architecture
 
@@ -180,24 +178,7 @@ The plot compares ground truth, noisy measurements and estimated trajectory.
 
 ---
 
-## 7. Hiring-manager talking points
-
-Use this project to explain:
-
-- how sensor noise affects localization
-- how covariance changes after predict/update cycles
-- why reproducibility matters in autonomy projects
-- why a simple tested baseline can beat an overcomplicated untested model
-- how to convert real vehicle logs into a model-ready trajectory format
-- how planning decisions can be made interpretable before introducing complex RL/MPC
-
-Suggested resume bullet:
-
-> Built a tested autonomous systems demo in Python for 2D vehicle localization, perception-risk scoring and safety-aware planning, including KITTI Raw OXTS preprocessing, Kalman Filter estimation, reproducible CLI scripts, CI tests and trajectory visualization.
-
----
-
-## 8. Repository commands
+## 7. Repository commands
 
 ```bash
 # Run local demo
