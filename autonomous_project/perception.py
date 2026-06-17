@@ -1,26 +1,71 @@
-"""Very small CNN-like network in pure NumPy."""
+"""Lightweight perception-risk scoring.
+
+The model is deliberately dependency-minimal. It does not claim to be a trained
+production CNN; it provides deterministic image/tensor feature extraction and a
+risk score that can feed the planner during demos and tests.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
 import numpy as np
 
-class DummyCNN:
-    def __init__(self, input_channels: int = 3, num_classes: int = 10):
-        self.w = np.random.randn(input_channels, 3, 3) * 0.01
-        self.fc = np.random.randn(num_classes, input_channels) * 0.01
 
-    def forward(self, x: np.ndarray) -> np.ndarray:
-        x_conv = self._conv2d(x, self.w)
-        x_pool = x_conv.mean(axis=(2, 3))          # global average pool
-        logits = self.fc @ x_pool
-        return logits
+@dataclass(frozen=True)
+class PerceptionConfig:
+    input_channels: int = 3
+    kernel_size: int = 3
+    num_classes: int = 3
+    seed: int = 7
+
+
+class LightweightPerceptionModel:
+    """Small NumPy perception model producing logits and obstacle risk."""
+
+    def __init__(self, config: PerceptionConfig | None = None):
+        self.config = config or PerceptionConfig()
+        rng = np.random.default_rng(self.config.seed)
+        self.kernel = rng.normal(0.0, 0.03, size=(self.config.input_channels, self.config.kernel_size, self.config.kernel_size))
+        self.classifier = rng.normal(0.0, 0.05, size=(self.config.num_classes, self.config.input_channels))
+
+    def forward(self, image_batch: np.ndarray) -> np.ndarray:
+        """Return class logits for a batch of images shaped ``[B, C, H, W]``."""
+        x = self._validate_batch(image_batch)
+        features = self._conv2d(x, self.kernel)
+        pooled = features.mean(axis=(2, 3))
+        return pooled @ self.classifier.T
+
+    def obstacle_risk(self, image_batch: np.ndarray) -> np.ndarray:
+        """Return a normalized risk score between 0 and 1 for each image."""
+        logits = self.forward(image_batch)
+        probabilities = self._softmax(logits)
+        return probabilities[:, -1]
 
     @staticmethod
-    def _conv2d(x: np.ndarray, w: np.ndarray) -> np.ndarray:
-        k = w.shape[-1]
-        B, C, H, W = x.shape
-        out_h = H - k + 1
-        out_w = W - k + 1
-        out = np.empty((B, C, out_h, out_w))
-        for i in range(out_h):
-            for j in range(out_w):
-                patch = x[:, :, i:i+k, j:j+k]
-                out[:, :, i, j] = (patch * w).sum(axis=(2, 3))
+    def _conv2d(x: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+        k = kernel.shape[-1]
+        batch, channels, height, width = x.shape
+        out_h = height - k + 1
+        out_w = width - k + 1
+        if out_h <= 0 or out_w <= 0:
+            raise ValueError("input image is smaller than the convolution kernel")
+        out = np.empty((batch, channels, out_h, out_w), dtype=float)
+        for row in range(out_h):
+            for col in range(out_w):
+                patch = x[:, :, row : row + k, col : col + k]
+                out[:, :, row, col] = (patch * kernel).sum(axis=(2, 3))
         return np.tanh(out)
+
+    def _validate_batch(self, image_batch: np.ndarray) -> np.ndarray:
+        x = np.asarray(image_batch, dtype=float)
+        if x.ndim != 4:
+            raise ValueError("image_batch must have shape [B, C, H, W]")
+        if x.shape[1] != self.config.input_channels:
+            raise ValueError(f"expected {self.config.input_channels} channels")
+        return x
+
+    @staticmethod
+    def _softmax(logits: np.ndarray) -> np.ndarray:
+        shifted = logits - logits.max(axis=1, keepdims=True)
+        exp = np.exp(shifted)
+        return exp / exp.sum(axis=1, keepdims=True)
