@@ -1,5 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "autonomous_project"
-version = "0.2.0"
+name = "autonomous-project"
+version = "1.0.0"
+description = "Hiring-ready autonomous systems demo: localization, perception scoring and safety-aware planning."
+readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["numpy"]
+license = { text = "MIT" }
+authors = [{ name = "Ashwin V" }]
+dependencies = [
+  "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "matplotlib>=3.7",
+]
+viz = [
+  "matplotlib>=3.7",
+]
+
+[tool.setuptools.packages.find]
+include = ["autonomous_project*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
