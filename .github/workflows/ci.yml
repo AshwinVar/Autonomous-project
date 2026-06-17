@@ -8,17 +8,15 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      # 1 – check out your repo
       - uses: actions/checkout@v4
-
-      # 2 – set up Python 3.11
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-
-      # 3 – install your package (editable mode) + deps
-      - run: pip install -e .
-      - run: pip install -r requirements.txt
-
-      # 4 – run the test suite
-      - run: pytest -q
+          python-version: "3.11"
+      - name: Install package and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Run tests
+        run: pytest
+      - name: Run demo smoke test
+        run: python scripts/demo.py
