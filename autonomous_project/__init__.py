@@ -1,6 +1,16 @@
-"""Public exports for the package."""
-from .sensor_fusion import ExtendedKalmanFilter
-from .perception import DummyCNN
-from .planner import DQNPlanner
+"""Autonomous systems demo package."""
 
-__all__ = ["ExtendedKalmanFilter", "DummyCNN", "DQNPlanner"]
+from .sensor_fusion import KalmanFilter2D, ExtendedKalmanFilter
+from .perception import LightweightPerceptionModel
+from .planner import PlannerAction, SafetyAwarePlanner
+from .pipeline import PipelineResult, run_autonomy_pipeline
+
+__all__ = [
+    "KalmanFilter2D",
+    "ExtendedKalmanFilter",
+    "LightweightPerceptionModel",
+    "PlannerAction",
+    "SafetyAwarePlanner",
+    "PipelineResult",
+    "run_autonomy_pipeline",
+]
