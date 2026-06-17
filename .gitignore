@@ -1,8 +1,23 @@
+# Python
 __pycache__/
 *.py[cod]
 .venv/
+venv/
+.env
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# Runtime outputs
+outputs/*
+!outputs/.gitkeep
+processed_kitti/
+raw_dataset/
+*.npz
+*.npy
+
+# IDE / OS
 .vscode/
 .idea/
-raw_dataset/
-model_checkpoints/
-runs/
+.DS_Store
