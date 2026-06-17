@@ -24,7 +24,7 @@ This repo demonstrates the engineering layer around autonomy code:
 - metrics and visualization outputs
 - documented architecture and assumptions
 
-The default demo runs without external datasets
+The default demo runs without external datasets.
 
 ## 2. Architecture
 
@@ -120,7 +120,6 @@ Expected output:
 
 ```text
 Prepared KITTI trajectory
-Frames: ...
 Wrote: processed_kitti/2011_09_26_drive_0001_sync_trajectory.npz
 Wrote: processed_kitti/manifest.json
 ```
@@ -129,7 +128,32 @@ The generated `.npz` contains local `x/y` positions and available yaw/velocity m
 
 ---
 
-## 5. Technical scope
+## 5. Run localization on processed KITTI data
+
+After preparing the KITTI trajectory, run:
+
+```bash
+python scripts/run_kitti_demo.py \
+  --trajectory processed_kitti/2011_09_26_drive_0001_sync_trajectory.npz \
+  --out outputs/kitti_localization.csv \
+  --plot outputs/kitti_localization.png
+```
+
+Expected output:
+
+```text
+KITTI localization demo complete
+Frames: ...
+Localization RMSE: ... m
+Wrote: outputs/kitti_localization.csv
+Wrote: outputs/kitti_localization.png
+```
+
+This runner loads the processed OXTS trajectory, creates noisy GPS-like measurements, runs the Kalman Filter and exports a CSV plus plot.
+
+---
+
+## 6. Technical scope
 
 This is a compact autonomy engineering demo, not a full production self-driving stack.
 
@@ -141,6 +165,7 @@ Implemented:
 - perception-like risk scoring
 - safety-aware rule-based planning
 - KITTI OXTS pose extraction
+- processed KITTI localization runner
 - automated tests
 - CI workflow
 
@@ -156,7 +181,7 @@ Those would be natural next upgrades.
 
 ---
 
-## 6. Results produced by the demo
+## 7. Results produced by the demo
 
 After running `python scripts/demo.py`, the project generates:
 
@@ -165,24 +190,28 @@ outputs/trajectory.csv
 outputs/trajectory.png
 ```
 
-`trajectory.csv` includes:
+After running `python scripts/run_kitti_demo.py`, the project generates:
 
-- timestamp index
-- ground-truth position
-- noisy measurement
-- Kalman estimate
-- selected planner action
-- perception risk score
+```text
+outputs/kitti_localization.csv
+outputs/kitti_localization.png
+```
 
-The plot compares ground truth, noisy measurements and estimated trajectory.
+The CSV includes reference position, noisy measurement and Kalman estimate. The plot compares reference trajectory, noisy measurements and estimated trajectory.
 
 ---
 
-## 7. Repository commands
+## 8. Repository commands
 
 ```bash
-# Run local demo
+# Run local synthetic demo
 python scripts/demo.py
+
+# Prepare KITTI OXTS trajectory
+python scripts/prepare_kitti.py --raw-root raw_dataset --date 2011_09_26 --drive 2011_09_26_drive_0001_sync --out processed_kitti
+
+# Run KITTI localization demo
+python scripts/run_kitti_demo.py --trajectory processed_kitti/2011_09_26_drive_0001_sync_trajectory.npz
 
 # Run tests
 pytest
